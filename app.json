@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "Precímetro",
+    "slug": "precimetro",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1a56db"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.precimetro.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "O Precímetro usa a câmera para escanear QR codes das notas fiscais."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1a56db"
+      },
+      "package": "com.precimetro.app",
+      "permissions": ["android.permission.CAMERA"]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "O Precímetro usa a câmera para escanear QR codes das notas fiscais."
+        }
+      ]
+    ]
+  }
+}
