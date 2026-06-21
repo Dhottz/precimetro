@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useLayoutEffect } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity,
+  View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, Alert,
 } from 'react-native';
 import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Receipt, ReceiptItem, RootStackParamList } from '../types';
-import { getReceipt } from '../services/receipts';
+import { getReceipt, deleteReceipt } from '../services/receipts';
 import { colors, spacing, radius, shadow } from '../theme';
 
 type Route = RouteProp<RootStackParamList, 'ReceiptDetail'>;
@@ -26,6 +26,39 @@ export default function ReceiptDetailScreen() {
       setLoading(false);
     });
   }, [params.receiptId]);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity onPress={handleDelete} style={{ paddingRight: 4 }}>
+          <Ionicons name="trash-outline" size={22} color={colors.danger} />
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation, receipt]);
+
+  function handleDelete() {
+    if (!receipt) return;
+    Alert.alert(
+      'Excluir nota',
+      `Excluir a nota do ${receipt.storeName}? Os preços cadastrados por ela também serão removidos.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteReceipt(receipt);
+              navigation.goBack();
+            } catch (err: any) {
+              Alert.alert('Erro', err.message);
+            }
+          },
+        },
+      ]
+    );
+  }
 
   if (loading) {
     return <View style={styles.center}><ActivityIndicator color={colors.primary} size="large" /></View>;

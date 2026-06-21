@@ -4,6 +4,7 @@ import {
   setDoc,
   getDoc,
   getDocs,
+  deleteDoc,
   query,
   orderBy,
   where,
@@ -129,6 +130,42 @@ export async function getReceiptsByStore(storeId: string): Promise<Receipt[]> {
 export async function getReceipt(id: string): Promise<Receipt | null> {
   const snap = await getDoc(doc(db, 'receipts', id));
   return snap.exists() ? ({ id: snap.id, ...snap.data() } as Receipt) : null;
+}
+
+export async function deleteReceipt(receipt: Receipt): Promise<void> {
+  const batch = writeBatch(db);
+
+  // Remove a nota
+  batch.delete(doc(db, 'receipts', receipt.id));
+
+  // Remove os preços deste recibo de cada produto
+  for (const item of receipt.items) {
+    const normalizedName = (await import('./sefaz')).normalizeProductName(item.name);
+    const productId = normalizedName.replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').slice(0, 60);
+    const productRef = doc(db, 'products', productId);
+    const snap = await getDoc(productRef);
+    if (!snap.exists()) continue;
+
+    const product = snap.data() as import('../types').Product;
+    const remaining = product.prices.filter((p) => p.receiptId !== receipt.id);
+
+    if (remaining.length === 0) {
+      batch.delete(productRef);
+    } else {
+      const cheapest = remaining.reduce((min, p) => (p.price < min.price ? p : min));
+      batch.set(productRef, {
+        ...product,
+        prices: remaining,
+        cheapestPrice: cheapest.price,
+        cheapestStore: cheapest.storeName,
+        cheapestStoreId: cheapest.storeId,
+        lastPrice: remaining[remaining.length - 1].price,
+        lastStore: remaining[remaining.length - 1].storeName,
+      });
+    }
+  }
+
+  await batch.commit();
 }
 
 // ── Products ─────────────────────────────────────────────────────────────────
