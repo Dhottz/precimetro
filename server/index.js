@@ -156,22 +156,24 @@ app.get('/scrape', async (req, res) => {
         } catch (e) {}
       }
 
-      // Total — busca linha-a-linha: "Valor a pagar" tem o valor na linha seguinte
+      // Total — busca linha-a-linha; pega o maior valor nas próximas 5 linhas
+      // após "Valor a pagar" para evitar pegar o desconto (ex: 1,00)
       var allLines = bodyText.split('\n').map(function(l){ return l.trim(); }).filter(Boolean);
-      for (var li = 0; li < allLines.length - 1; li++) {
-        if (/valor\s*a\s*pagar/i.test(allLines[li])) {
-          var v = parseNum(allLines[li + 1]);
-          if (v > 0) { result.total = v; break; }
-        }
-      }
-      if (!result.total) {
+      function findTotalAfterLabel(labelRe) {
         for (var li = 0; li < allLines.length - 1; li++) {
-          if (/valor\s*total/i.test(allLines[li])) {
-            var v = parseNum(allLines[li + 1]);
-            if (v > 0) { result.total = v; break; }
+          if (labelRe.test(allLines[li])) {
+            var best = 0;
+            for (var lj = li + 1; lj <= li + 5 && lj < allLines.length; lj++) {
+              var v = parseNum(allLines[lj]);
+              if (v > best) best = v;
+            }
+            if (best > 0) return best;
           }
         }
+        return 0;
       }
+      result.total = findTotalAfterLabel(/valor\s*a\s*pagar/i)
+                  || findTotalAfterLabel(/valor\s*total/i);
 
       // ── ESTRATÉGIA PRIORITÁRIA: parsing do innerText linha a linha ──────────
       // Formato do portal RJ:
