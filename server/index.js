@@ -34,7 +34,7 @@ app.get('/debug', async (req, res) => {
     await new Promise((r) => setTimeout(r, 8000));
     const html = await page.content();
     const text = await page.evaluate(() => document.body.innerText);
-    res.json({ html: html.substring(0, 5000), text: text.substring(0, 3000), url: page.url() });
+    res.json({ html: html.substring(0, 5000), text: text.substring(0, 15000), url: page.url() });
   } catch (err) {
     res.status(500).json({ error: err.message });
   } finally {
@@ -175,8 +175,12 @@ app.get('/scrape', async (req, res) => {
       //   NOME DO PRODUTO (Código: 1234 )
       //   Qtde.:1UN: UNVl. Unit.:   8,99\tVl. Total
       //   8,99
+      // O portal RJ renderiza cada item 2x. Para itens por kg pode mostrar
+      // uma linha com Qtde.:1 (exibição) e outra com a fração real (ex: 0,130).
+      // Estratégia: coleta todos os candidatos, depois para grupos com mesmo
+      // (nome + unitPrice + total) mantém só o de qty mais preciso.
       var lines = bodyText.split('\n').map(function(l){ return l.trim(); }).filter(Boolean);
-      var seen = {}; // para deduplicar itens idênticos (o portal RJ renderiza cada item 2x)
+      var candidates = [];
       for (var i = 0; i < lines.length - 2; i++) {
         var prodMatch = lines[i].match(/^(.+?)\s*\(C[oó]d(?:igo)?[.:]?\s*\d+\s*\)/i);
         if (!prodMatch) continue;
@@ -184,7 +188,6 @@ app.get('/scrape', async (req, res) => {
         if (!name || name.length < 2) continue;
         var detail = lines[i + 1];
         var totalStr = lines[i + 2];
-        // detail: "Qtde.:0,325UN: KGVl. Unit.:   109,99\tVl. Total"
         var qtyMatch  = detail.match(/Qtde\.:(\d+[.,]\d+|\d+)/i);
         var unitMatch = detail.match(/UN:\s*([A-Za-z]+)/i);
         var vuMatch   = detail.match(/Vl\.\s*Unit\.:?\s*([\d.,]+)/i);
@@ -193,15 +196,27 @@ app.get('/scrape', async (req, res) => {
         var vu   = vuMatch   ? parseNum(vuMatch[1])   : 0;
         var vt   = parseNum(totalStr);
         if (vt <= 0 || !detail.includes('Vl.')) continue;
-        // Filtra linhas fantasma de itens por kg: portal RJ mostra "Qtde.:1" com
-        // total incorreto antes da linha real com a quantidade fracionária
-        if (qty === 1 && vu > 0 && vu > vt * 2) { i += 2; continue; }
-        // Deduplicação: portal RJ renderiza o mesmo item 2 vezes exatamente
-        var key = name + '|' + qty + '|' + vt;
-        if (seen[key]) { i += 2; continue; }
-        seen[key] = true;
-        result.items.push({ code:'', name:name, quantity:qty||1, unit:unit||'UN', unitPrice:vu||vt, totalPrice:vt });
-        i += 2; // avança para o próximo produto
+        candidates.push({ name:name, quantity:qty||1, unit:unit||'UN', unitPrice:vu||vt, totalPrice:vt });
+        i += 2;
+      }
+      // Deduplicação: para grupos com mesmo (nome, unitPrice, total),
+      // mantém o candidato com qty mais próximo de totalPrice/unitPrice.
+      // Isso elimina as linhas "Qtde.:1" fantasmas de itens por kg,
+      // mas preserva compras genuinamente repetidas (mesmo nome, totais diferentes).
+      var groups = {};
+      for (var j = 0; j < candidates.length; j++) {
+        var c = candidates[j];
+        var key = c.name + '|' + c.unitPrice + '|' + c.totalPrice;
+        if (!groups[key]) { groups[key] = c; continue; }
+        var expected = c.unitPrice > 0 ? c.totalPrice / c.unitPrice : c.quantity;
+        var errNew = Math.abs(c.quantity - expected);
+        var errOld = Math.abs(groups[key].quantity - expected);
+        if (errNew < errOld) groups[key] = c;
+      }
+      var keys = Object.keys(groups);
+      for (var k = 0; k < keys.length; k++) {
+        var it = groups[keys[k]];
+        result.items.push({ code:'', name:it.name, quantity:it.quantity, unit:it.unit, unitPrice:it.unitPrice, totalPrice:it.totalPrice });
       }
 
       // ── Fallback DOM: spans padrão NFC-e ─────────────────────────────────
