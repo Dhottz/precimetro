@@ -156,7 +156,7 @@ app.get('/scrape', async (req, res) => {
         } catch (e) {}
       }
 
-      // Total
+      // Total — prioriza "Valor a pagar" (após descontos) sobre "Valor total"
       var totalSels = ['#linhaTotal .nfcTotaisConteudo', '#linhaTotal', '.totalNF', '.vlrTotal',
         '[id*="totalNota"]', '[id*="vlrTotal"]', '[class*="vlrTotal"]'];
       for (var i = 0; i < totalSels.length; i++) {
@@ -166,7 +166,11 @@ app.get('/scrape', async (req, res) => {
         } catch (e) {}
       }
       if (!result.total) {
-        var tm = bodyText.match(/[Vv]alor\s*[Tt]otal[^\d]{0,10}([\d.,]+)/);
+        var tp = bodyText.match(/[Vv]alor\s*a\s*[Pp]agar\s*R?\$?[:\s]*([\d.,]+)/);
+        if (tp) result.total = parseNum(tp[1]);
+      }
+      if (!result.total) {
+        var tm = bodyText.match(/[Vv]alor\s*[Tt]otal\s*R?\$?[:\s]*([\d.,]+)/);
         if (tm) result.total = parseNum(tm[1]);
       }
 
@@ -175,12 +179,9 @@ app.get('/scrape', async (req, res) => {
       //   NOME DO PRODUTO (Código: 1234 )
       //   Qtde.:1UN: UNVl. Unit.:   8,99\tVl. Total
       //   8,99
-      // O portal RJ renderiza cada item 2x. Para itens por kg pode mostrar
-      // uma linha com Qtde.:1 (exibição) e outra com a fração real (ex: 0,130).
-      // Estratégia: coleta todos os candidatos, depois para grupos com mesmo
-      // (nome + unitPrice + total) mantém só o de qty mais preciso.
+      // Cada ocorrência no texto é uma compra real — sem deduplicação.
+      // Itens comprados múltiplas vezes aparecem múltiplas vezes.
       var lines = bodyText.split('\n').map(function(l){ return l.trim(); }).filter(Boolean);
-      var candidates = [];
       for (var i = 0; i < lines.length - 2; i++) {
         var prodMatch = lines[i].match(/^(.+?)\s*\(C[oó]d(?:igo)?[.:]?\s*\d+\s*\)/i);
         if (!prodMatch) continue;
@@ -196,27 +197,8 @@ app.get('/scrape', async (req, res) => {
         var vu   = vuMatch   ? parseNum(vuMatch[1])   : 0;
         var vt   = parseNum(totalStr);
         if (vt <= 0 || !detail.includes('Vl.')) continue;
-        candidates.push({ name:name, quantity:qty||1, unit:unit||'UN', unitPrice:vu||vt, totalPrice:vt });
+        result.items.push({ code:'', name:name, quantity:qty||1, unit:unit||'UN', unitPrice:vu||vt, totalPrice:vt });
         i += 2;
-      }
-      // Deduplicação: para grupos com mesmo (nome, unitPrice, total),
-      // mantém o candidato com qty mais próximo de totalPrice/unitPrice.
-      // Isso elimina as linhas "Qtde.:1" fantasmas de itens por kg,
-      // mas preserva compras genuinamente repetidas (mesmo nome, totais diferentes).
-      var groups = {};
-      for (var j = 0; j < candidates.length; j++) {
-        var c = candidates[j];
-        var key = c.name + '|' + c.unitPrice + '|' + c.totalPrice;
-        if (!groups[key]) { groups[key] = c; continue; }
-        var expected = c.unitPrice > 0 ? c.totalPrice / c.unitPrice : c.quantity;
-        var errNew = Math.abs(c.quantity - expected);
-        var errOld = Math.abs(groups[key].quantity - expected);
-        if (errNew < errOld) groups[key] = c;
-      }
-      var keys = Object.keys(groups);
-      for (var k = 0; k < keys.length; k++) {
-        var it = groups[keys[k]];
-        result.items.push({ code:'', name:it.name, quantity:it.quantity, unit:it.unit, unitPrice:it.unitPrice, totalPrice:it.totalPrice });
       }
 
       // ── Fallback DOM: spans padrão NFC-e ─────────────────────────────────
@@ -320,12 +302,9 @@ app.get('/scrape', async (req, res) => {
         }
       }
 
-      // Se o total extraído do DOM for 0 ou absurdo, calcula pela soma dos itens
-      if (result.items.length > 0) {
-        var sumItems = result.items.reduce(function(s, it) { return s + it.totalPrice; }, 0);
-        if (result.total <= 0 || result.total < sumItems * 0.5) {
-          result.total = Math.round(sumItems * 100) / 100;
-        }
+      // Se o total extraído for 0, usa a soma dos itens como fallback
+      if (result.total <= 0 && result.items.length > 0) {
+        result.total = Math.round(result.items.reduce(function(s, it) { return s + it.totalPrice; }, 0) * 100) / 100;
       }
 
       return result;
