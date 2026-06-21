@@ -49,8 +49,27 @@ app.get('/scrape', async (req, res) => {
 
     await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
 
-    // Aguarda AJAX do JSF terminar
-    await new Promise((r) => setTimeout(r, 3000));
+    // Aguarda AJAX do JSF terminar — tenta detectar quando os itens aparecem no DOM
+    try {
+      await page.waitForFunction(
+        () => {
+          // Considera carregado quando há .txtTit (spans padrão NFC-e)
+          // OU quando uma tabela tem mais de 2 linhas com preços
+          const spans = document.querySelectorAll('.txtTit');
+          if (spans.length > 0) return true;
+          const rows = document.querySelectorAll('table tr');
+          if (rows.length > 3) {
+            const text = document.body.innerText || '';
+            return /\d+[.,]\d{2}/.test(text) && text.length > 500;
+          }
+          return false;
+        },
+        { timeout: 12000, polling: 500 }
+      );
+    } catch (_) {
+      // Timeout — aguarda mais 5s fixos como fallback
+      await new Promise((r) => setTimeout(r, 5000));
+    }
 
     const data = await page.evaluate(() => {
       function parseNum(text) {
