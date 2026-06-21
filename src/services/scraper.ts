@@ -6,13 +6,18 @@ const API_KEY = process.env.EXPO_PUBLIC_SCRAPER_API_KEY || '';
 export async function scrapeReceipt(qrUrl: string): Promise<SefazResult> {
   if (!SERVER_URL) throw new Error('Servidor não configurado');
 
-  const response = await fetch(
-    `${SERVER_URL}/scrape?url=${encodeURIComponent(qrUrl)}`,
-    {
-      headers: { 'x-api-key': API_KEY },
-      signal: AbortSignal.timeout(40000), // 40s timeout
-    }
-  );
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 40000);
+
+  let response: Response;
+  try {
+    response = await fetch(
+      `${SERVER_URL}/scrape?url=${encodeURIComponent(qrUrl)}`,
+      { headers: { 'x-api-key': API_KEY }, signal: controller.signal }
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
