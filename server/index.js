@@ -186,13 +186,16 @@ app.get('/scrape', async (req, res) => {
         var totalStr = lines[i + 2];
         // detail: "Qtde.:0,325UN: KGVl. Unit.:   109,99\tVl. Total"
         var qtyMatch  = detail.match(/Qtde\.:(\d+[.,]\d+|\d+)/i);
-        var unitMatch = detail.match(/UN:\s*(\w+)/i);
+        var unitMatch = detail.match(/UN:\s*([A-Za-z]+)/i);
         var vuMatch   = detail.match(/Vl\.\s*Unit\.:?\s*([\d.,]+)/i);
         var qty  = qtyMatch  ? parseNum(qtyMatch[1])  : 1;
-        var unit = unitMatch ? unitMatch[1].toUpperCase() : 'UN';
+        var unit = unitMatch ? unitMatch[1].replace(/Vl$/i, '').toUpperCase() : 'UN';
         var vu   = vuMatch   ? parseNum(vuMatch[1])   : 0;
         var vt   = parseNum(totalStr);
         if (vt <= 0 || !detail.includes('Vl.')) continue;
+        // Filtra linhas fantasma de itens por kg: portal RJ mostra "Qtde.:1" com
+        // total incorreto antes da linha real com a quantidade fracionária
+        if (qty === 1 && vu > 0 && vu > vt * 2) { i += 2; continue; }
         // Deduplicação: portal RJ renderiza o mesmo item 2 vezes exatamente
         var key = name + '|' + qty + '|' + vt;
         if (seen[key]) { i += 2; continue; }
@@ -299,6 +302,14 @@ app.get('/scrape', async (req, res) => {
             if (/^(UN|KG|LT|CX|PC|GR|ML|L|G|M|MT)$/i.test(cleanText(tds[c]).trim())) { unit = cleanText(tds[c]).toUpperCase(); break; }
           }
           if (vt > 0) result.items.push({ code: '', name, quantity: qty || 1, unit, unitPrice: vu || vt, totalPrice: vt });
+        }
+      }
+
+      // Se o total extraído do DOM for 0 ou absurdo, calcula pela soma dos itens
+      if (result.items.length > 0) {
+        var sumItems = result.items.reduce(function(s, it) { return s + it.totalPrice; }, 0);
+        if (result.total <= 0 || result.total < sumItems * 0.5) {
+          result.total = Math.round(sumItems * 100) / 100;
         }
       }
 
