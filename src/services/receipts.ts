@@ -60,7 +60,7 @@ export async function saveReceipt(sefazData: SefazResult, store: Store): Promise
   // Update products price history
   for (const item of sefazData.items) {
     const normalizedName = normalizeProductName(item.name);
-    const productId = `${normalizedName.replace(/\s+/g, '_').slice(0, 60)}`;
+    const productId = normalizedName.replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').slice(0, 60);
     const productRef = doc(db, 'products', productId);
 
     const priceEntry: ProductPrice = {
@@ -172,7 +172,7 @@ export async function estimateShoppingList(items: ShoppingListItem[]): Promise<S
 
   for (const item of items) {
     const normalized = normalizeProductName(item.productName);
-    const productId = normalized.replace(/\s+/g, '_').slice(0, 60);
+    const productId = normalized.replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').slice(0, 60);
     const product = await getProduct(productId);
 
     if (product && product.prices.length > 0) {
