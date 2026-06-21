@@ -4,7 +4,6 @@ import {
   setDoc,
   getDoc,
   getDocs,
-  deleteDoc,
   query,
   orderBy,
   where,
@@ -140,13 +139,13 @@ export async function deleteReceipt(receipt: Receipt): Promise<void> {
 
   // Remove os preços deste recibo de cada produto
   for (const item of receipt.items) {
-    const normalizedName = (await import('./sefaz')).normalizeProductName(item.name);
+    const normalizedName = normalizeProductName(item.name);
     const productId = normalizedName.replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').slice(0, 60);
     const productRef = doc(db, 'products', productId);
     const snap = await getDoc(productRef);
     if (!snap.exists()) continue;
 
-    const product = snap.data() as import('../types').Product;
+    const product = snap.data() as Product;
     const remaining = product.prices.filter((p) => p.receiptId !== receipt.id);
 
     if (remaining.length === 0) {
