@@ -156,22 +156,21 @@ app.get('/scrape', async (req, res) => {
         } catch (e) {}
       }
 
-      // Total — prioriza "Valor a pagar" (após descontos) sobre "Valor total"
-      var totalSels = ['#linhaTotal .nfcTotaisConteudo', '#linhaTotal', '.totalNF', '.vlrTotal',
-        '[id*="totalNota"]', '[id*="vlrTotal"]', '[class*="vlrTotal"]'];
-      for (var i = 0; i < totalSels.length; i++) {
-        try {
-          var el = document.querySelector(totalSels[i]);
-          if (el) { var v = parseNum(cleanText(el)); if (v > 0) { result.total = v; break; } }
-        } catch (e) {}
+      // Total — busca linha-a-linha: "Valor a pagar" tem o valor na linha seguinte
+      var allLines = bodyText.split('\n').map(function(l){ return l.trim(); }).filter(Boolean);
+      for (var li = 0; li < allLines.length - 1; li++) {
+        if (/valor\s*a\s*pagar/i.test(allLines[li])) {
+          var v = parseNum(allLines[li + 1]);
+          if (v > 0) { result.total = v; break; }
+        }
       }
       if (!result.total) {
-        var tp = bodyText.match(/[Vv]alor\s*a\s*[Pp]agar\s*R?\$?[:\s]*([\d.,]+)/);
-        if (tp) result.total = parseNum(tp[1]);
-      }
-      if (!result.total) {
-        var tm = bodyText.match(/[Vv]alor\s*[Tt]otal\s*R?\$?[:\s]*([\d.,]+)/);
-        if (tm) result.total = parseNum(tm[1]);
+        for (var li = 0; li < allLines.length - 1; li++) {
+          if (/valor\s*total/i.test(allLines[li])) {
+            var v = parseNum(allLines[li + 1]);
+            if (v > 0) { result.total = v; break; }
+          }
+        }
       }
 
       // ── ESTRATÉGIA PRIORITÁRIA: parsing do innerText linha a linha ──────────
