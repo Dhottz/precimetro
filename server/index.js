@@ -170,7 +170,38 @@ app.get('/scrape', async (req, res) => {
         if (tm) result.total = parseNum(tm[1]);
       }
 
-      // Itens — spans padrão NFC-e
+      // ── ESTRATÉGIA PRIORITÁRIA: parsing do innerText linha a linha ──────────
+      // Formato do portal RJ:
+      //   NOME DO PRODUTO (Código: 1234 )
+      //   Qtde.:1UN: UNVl. Unit.:   8,99\tVl. Total
+      //   8,99
+      var lines = bodyText.split('\n').map(function(l){ return l.trim(); }).filter(Boolean);
+      var seen = {}; // para deduplicar itens idênticos (o portal RJ renderiza cada item 2x)
+      for (var i = 0; i < lines.length - 2; i++) {
+        var prodMatch = lines[i].match(/^(.+?)\s*\(C[oó]d(?:igo)?[.:]?\s*\d+\s*\)/i);
+        if (!prodMatch) continue;
+        var name = prodMatch[1].trim();
+        if (!name || name.length < 2) continue;
+        var detail = lines[i + 1];
+        var totalStr = lines[i + 2];
+        // detail: "Qtde.:0,325UN: KGVl. Unit.:   109,99\tVl. Total"
+        var qtyMatch  = detail.match(/Qtde\.:(\d+[.,]\d+|\d+)/i);
+        var unitMatch = detail.match(/UN:\s*(\w+)/i);
+        var vuMatch   = detail.match(/Vl\.\s*Unit\.:?\s*([\d.,]+)/i);
+        var qty  = qtyMatch  ? parseNum(qtyMatch[1])  : 1;
+        var unit = unitMatch ? unitMatch[1].toUpperCase() : 'UN';
+        var vu   = vuMatch   ? parseNum(vuMatch[1])   : 0;
+        var vt   = parseNum(totalStr);
+        if (vt <= 0 || !detail.includes('Vl.')) continue;
+        // Deduplicação: portal RJ renderiza o mesmo item 2 vezes exatamente
+        var key = name + '|' + qty + '|' + vt;
+        if (seen[key]) { i += 2; continue; }
+        seen[key] = true;
+        result.items.push({ code:'', name:name, quantity:qty||1, unit:unit||'UN', unitPrice:vu||vt, totalPrice:vt });
+        i += 2; // avança para o próximo produto
+      }
+
+      // ── Fallback DOM: spans padrão NFC-e ─────────────────────────────────
       var titEls = document.querySelectorAll('.txtTit');
       if (titEls.length > 0) {
         for (var i = 0; i < titEls.length; i++) {
