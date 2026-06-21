@@ -16,6 +16,32 @@ app.use((req, res, next) => {
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
+// Debug: retorna o HTML bruto da página (só usar para diagnóstico)
+app.get('/debug', async (req, res) => {
+  const rawUrl = req.query.url;
+  if (!rawUrl) return res.status(400).json({ error: 'url obrigatório' });
+  const url = decodeURIComponent(rawUrl);
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu','--single-process','--no-zygote'],
+    });
+    const page = await browser.newPage();
+    await page.setUserAgent('Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36');
+    await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+    await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
+    await new Promise((r) => setTimeout(r, 8000));
+    const html = await page.content();
+    const text = await page.evaluate(() => document.body.innerText);
+    res.json({ html: html.substring(0, 5000), text: text.substring(0, 3000), url: page.url() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+  }
+});
+
 app.get('/scrape', async (req, res) => {
   const rawUrl = req.query.url;
   if (!rawUrl) return res.status(400).json({ ok: false, error: 'Parâmetro url obrigatório' });
