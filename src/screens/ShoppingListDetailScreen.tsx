@@ -1,13 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput,
-  Modal, KeyboardAvoidingView, Platform, Alert, ActivityIndicator,
+  Modal, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, ScrollView,
 } from 'react-native';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { Timestamp } from 'firebase/firestore';
-import { RootStackParamList, ShoppingList, ShoppingListItem } from '../types';
-import { getShoppingLists, updateShoppingList, estimateShoppingList } from '../services/receipts';
+import { RootStackParamList, ShoppingList, ShoppingListItem, Product } from '../types';
+import { getShoppingLists, updateShoppingList, estimateShoppingList, getAllProducts } from '../services/receipts';
+import { normalizeProductName } from '../services/sefaz';
 import { colors, spacing, radius, shadow } from '../theme';
 
 type Route = RouteProp<RootStackParamList, 'ShoppingListDetail'>;
@@ -22,6 +22,11 @@ export default function ShoppingListDetailScreen() {
   const [newItemQty, setNewItemQty] = useState('1');
   const [newItemUnit, setNewItemUnit] = useState('un');
 
+  // Autocomplete
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [suggestions, setSuggestions] = useState<Product[]>([]);
+  const [selectedFromHistory, setSelectedFromHistory] = useState(false);
+
   useEffect(() => {
     async function load() {
       const all = await getShoppingLists();
@@ -31,6 +36,45 @@ export default function ShoppingListDetailScreen() {
     }
     load();
   }, [params.listId]);
+
+  // Carrega produtos ao abrir o modal
+  useEffect(() => {
+    if (addModal && allProducts.length === 0) {
+      getAllProducts().then(setAllProducts);
+    }
+  }, [addModal]);
+
+  // Filtra sugestões conforme o usuário digita
+  useEffect(() => {
+    if (!newItemName.trim() || selectedFromHistory) {
+      setSuggestions([]);
+      return;
+    }
+    const term = normalizeProductName(newItemName);
+    if (term.length < 2) { setSuggestions([]); return; }
+    const matches = allProducts
+      .filter((p) => p.normalizedName.includes(term))
+      .slice(0, 6);
+    setSuggestions(matches);
+  }, [newItemName, allProducts, selectedFromHistory]);
+
+  function handleSelectSuggestion(product: Product) {
+    const lastPrice = product.prices[product.prices.length - 1];
+    setNewItemName(product.name);
+    setNewItemUnit(lastPrice?.unit || 'un');
+    setNewItemQty('1');
+    setSelectedFromHistory(true);
+    setSuggestions([]);
+  }
+
+  function resetModal() {
+    setAddModal(false);
+    setNewItemName('');
+    setNewItemQty('1');
+    setNewItemUnit('un');
+    setSelectedFromHistory(false);
+    setSuggestions([]);
+  }
 
   async function persist(updated: ShoppingList) {
     setList(updated);
@@ -51,11 +95,8 @@ export default function ShoppingListDetailScreen() {
       checked: false,
     };
     const updated = { ...list, items: [...list.items, newItem] };
-    setAddModal(false);
-    setNewItemName('');
-    setNewItemQty('1');
+    resetModal();
 
-    // estimar preço imediatamente
     const enriched = await estimateShoppingList(updated.items);
     const total = enriched.reduce((sum, i) => sum + (i.estimatedPrice ?? 0), 0);
     await persist({ ...updated, items: enriched, totalEstimate: total });
@@ -130,7 +171,6 @@ export default function ShoppingListDetailScreen() {
   }
 
   const checkedCount = list.items.filter((i) => i.checked).length;
-  const hasEstimates = list.items.some((i) => i.estimatedPrice != null);
   const itemsWithoutEstimate = list.items.filter((i) => i.estimatedPrice == null).length;
 
   return (
@@ -140,9 +180,9 @@ export default function ShoppingListDetailScreen() {
         keyExtractor={(i) => i.id}
         renderItem={renderItem}
         contentContainerStyle={styles.listContent}
+        keyboardShouldPersistTaps="handled"
         ListHeaderComponent={
           <View>
-            {/* Summary */}
             <View style={styles.summaryCard}>
               <View style={styles.summaryRow}>
                 <View style={styles.summaryItem}>
@@ -166,7 +206,6 @@ export default function ShoppingListDetailScreen() {
                   </>
                 )}
               </View>
-
               {itemsWithoutEstimate > 0 && (
                 <TouchableOpacity
                   style={styles.estimateBtn}
@@ -195,12 +234,10 @@ export default function ShoppingListDetailScreen() {
         }
       />
 
-      {/* Botão de adicionar item */}
       <TouchableOpacity style={styles.fab} onPress={() => setAddModal(true)}>
         <Ionicons name="add" size={28} color="#fff" />
       </TouchableOpacity>
 
-      {/* Modal de novo item */}
       <Modal visible={addModal} transparent animationType="slide">
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -209,14 +246,38 @@ export default function ShoppingListDetailScreen() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Adicionar item</Text>
             <Text style={styles.modalLabel}>Produto</Text>
-            <TextInput
-              style={styles.input}
-              value={newItemName}
-              onChangeText={setNewItemName}
-              placeholder="Ex: Leite integral, Arroz 5kg..."
-              placeholderTextColor={colors.textMuted}
-              autoFocus
-            />
+
+            {/* Input com autocomplete */}
+            <View style={styles.autocompleteWrapper}>
+              <TextInput
+                style={styles.input}
+                value={newItemName}
+                onChangeText={(t) => { setNewItemName(t); setSelectedFromHistory(false); }}
+                placeholder="Ex: Leite integral, Arroz 5kg..."
+                placeholderTextColor={colors.textMuted}
+                autoFocus
+              />
+              {suggestions.length > 0 && (
+                <View style={styles.suggestionBox}>
+                  {suggestions.map((p) => (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={styles.suggestionRow}
+                      onPress={() => handleSelectSuggestion(p)}
+                    >
+                      <View style={styles.suggestionLeft}>
+                        <Ionicons name="time-outline" size={14} color={colors.textMuted} />
+                        <Text style={styles.suggestionName} numberOfLines={1}>{p.name}</Text>
+                      </View>
+                      {p.cheapestPrice != null && (
+                        <Text style={styles.suggestionPrice}>{formatBRL(p.cheapestPrice)}</Text>
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+
             <View style={styles.qtyRow}>
               <View style={{ flex: 2 }}>
                 <Text style={styles.modalLabel}>Quantidade</Text>
@@ -237,17 +298,19 @@ export default function ShoppingListDetailScreen() {
                   onChangeText={setNewItemUnit}
                   placeholder="un"
                   placeholderTextColor={colors.textMuted}
+                  autoCapitalize="none"
                 />
               </View>
             </View>
+
             <Text style={styles.estimateHint}>
-              O preço será estimado automaticamente com base no seu histórico
+              {selectedFromHistory
+                ? 'Produto do seu histórico — preço estimado automaticamente'
+                : 'O preço será estimado com base no seu histórico de compras'}
             </Text>
+
             <View style={styles.modalBtns}>
-              <TouchableOpacity
-                style={styles.cancelBtn}
-                onPress={() => { setAddModal(false); setNewItemName(''); }}
-              >
+              <TouchableOpacity style={styles.cancelBtn} onPress={resetModal}>
                 <Text style={styles.cancelBtnText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -349,6 +412,7 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: 17, fontWeight: '700', color: colors.text, marginBottom: spacing.md },
   modalLabel: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.xs },
+  autocompleteWrapper: { marginBottom: spacing.sm },
   input: {
     borderWidth: 1.5,
     borderColor: colors.border,
@@ -356,9 +420,29 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     fontSize: 15,
     color: colors.text,
-    marginBottom: spacing.sm,
   },
-  qtyRow: { flexDirection: 'row', gap: spacing.sm },
+  suggestionBox: {
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderColor: colors.border,
+    borderBottomLeftRadius: radius.md,
+    borderBottomRightRadius: radius.md,
+    backgroundColor: colors.card,
+    overflow: 'hidden',
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  suggestionLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  suggestionName: { fontSize: 13, color: colors.text, flex: 1 },
+  suggestionPrice: { fontSize: 13, fontWeight: '700', color: colors.secondary, marginLeft: 8 },
+  qtyRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
   estimateHint: { fontSize: 11, color: colors.textMuted, marginBottom: spacing.md, textAlign: 'center' },
   modalBtns: { flexDirection: 'row', gap: spacing.sm },
   cancelBtn: { flex: 1, borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' },
