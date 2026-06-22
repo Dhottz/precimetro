@@ -145,14 +145,14 @@ export default function ProductCompareScreen() {
     setSaving(false);
   }
 
-  async function handleMerge(target: Product) {
+  async function handleMerge(absorbed: Product) {
     if (!product) return;
     // fecha o modal antes de exibir o Alert para evitar conflito de overlays no Android
     setMergeModal(false);
     setTimeout(() => {
       Alert.alert(
         'Mesclar produtos',
-        `Unir "${product.name}" com "${target.name}"?\n\nTodo o histórico de preços será combinado e "${product.name}" será removido.`,
+        `Absorver os preços de "${absorbed.name}" neste produto?\n\n"${absorbed.name}" será removido e todo o histórico ficará em "${product.name}".`,
         [
           { text: 'Cancelar', style: 'cancel' },
           {
@@ -161,12 +161,14 @@ export default function ProductCompareScreen() {
             onPress: async () => {
               setSaving(true);
               try {
-                await mergeProducts(product.id, target.id);
-                navigation.goBack();
+                // absorbed é a fonte (será deletado), product é o destino (fica com tudo)
+                await mergeProducts(absorbed.id, product.id);
+                // recarrega a tela atual para mostrar os preços combinados
+                await load();
               } catch (e: any) {
                 Alert.alert('Erro', e.message);
-                setSaving(false);
               }
+              setSaving(false);
             },
           },
         ]
