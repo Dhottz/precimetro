@@ -24,7 +24,10 @@
         "backgroundColor": "#1a56db"
       },
       "package": "com.precimetro.app",
-      "permissions": ["android.permission.CAMERA"]
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "plugins": [
       [
@@ -33,6 +36,11 @@
           "cameraPermission": "O Precímetro usa a câmera para escanear QR codes das notas fiscais."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "509c9d13-7fbb-4daf-a5e0-93e7551fea1d"
+      }
+    }
   }
 }
