@@ -190,7 +190,8 @@ export default function ProductCompareScreen() {
   const chartData = buildChartData(storeGroups);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
 
       {/* ── Card de resumo ─────────────────────────────────────────────── */}
       <View style={styles.summaryCard}>
@@ -392,10 +393,10 @@ export default function ProductCompareScreen() {
         <Text style={styles.mergeBtnText}>Mesclar com outro produto</Text>
       </TouchableOpacity>
 
-    </ScrollView>
+      </ScrollView>
 
-    {/* ── Modal renomear ─────────────────────────────────────────────────── */}
-    <Modal visible={renameModal} transparent animationType="slide">
+      {/* ── Modal renomear ─────────────────────────────────────────────────── */}
+      <Modal visible={renameModal} transparent animationType="slide">
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.modalOverlay}
@@ -426,10 +427,10 @@ export default function ProductCompareScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
-    </Modal>
+      </Modal>
 
-    {/* ── Modal mesclar ──────────────────────────────────────────────────── */}
-    <Modal visible={mergeModal} transparent animationType="slide">
+      {/* ── Modal mesclar ──────────────────────────────────────────────────── */}
+      <Modal visible={mergeModal} transparent animationType="slide">
       <View style={styles.modalOverlay}>
         <View style={[styles.modalCard, { maxHeight: '80%' }]}>
           <Text style={styles.modalTitle}>Mesclar com...</Text>
@@ -473,7 +474,8 @@ export default function ProductCompareScreen() {
           </TouchableOpacity>
         </View>
       </View>
-    </Modal>
+      </Modal>
+    </>
   );
 }
 
