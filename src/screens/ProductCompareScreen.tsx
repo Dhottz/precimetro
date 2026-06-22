@@ -1,18 +1,21 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useLayoutEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, ActivityIndicator, Dimensions,
+  TouchableOpacity, Modal, TextInput, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { useRoute, RouteProp } from '@react-navigation/native';
+import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { LineChart } from 'react-native-chart-kit';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { RootStackParamList, Product, ProductPrice } from '../types';
-import { getAllProducts } from '../services/receipts';
+import { getAllProducts, renameProduct, mergeProducts } from '../services/receipts';
 import { normalizeProductName } from '../services/sefaz';
 import { colors, spacing, radius, shadow } from '../theme';
 
 type Route = RouteProp<RootStackParamList, 'ProductCompare'>;
+type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 interface StoreGrouped {
   storeId: string;
@@ -40,68 +43,133 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 
 export default function ProductCompareScreen() {
   const { params } = useRoute<Route>();
+  const navigation = useNavigation<Nav>();
   const [product, setProduct] = useState<Product | null>(null);
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
   const [storeGroups, setStoreGroups] = useState<StoreGrouped[]>([]);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function load() {
-      const all = await getAllProducts();
-      const normalized = normalizeProductName(params.productName);
-      const found = all.find(
-        (p) => p.normalizedName === normalized || p.name === params.productName
-      );
+  // Modais
+  const [renameModal, setRenameModal] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [mergeModal, setMergeModal] = useState(false);
+  const [mergeSearch, setMergeSearch] = useState('');
+  const [merging, setSaving] = useState(false);
 
-      if (!found) { setLoading(false); return; }
-      setProduct(found);
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity
+          onPress={() => { setNewName(product?.name ?? ''); setRenameModal(true); }}
+          style={{ paddingRight: 4 }}
+        >
+          <Ionicons name="pencil-outline" size={20} color={colors.primary} />
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation, product]);
 
-      // agrupar por loja
-      const map = new Map<string, ProductPrice[]>();
-      for (const p of found.prices) {
-        const list = map.get(p.storeId) ?? [];
-        list.push(p);
-        map.set(p.storeId, list);
-      }
+  async function load() {
+    const all = await getAllProducts();
+    setAllProducts(all);
+    const normalized = normalizeProductName(params.productName);
+    const found = all.find(
+      (p) => p.normalizedName === normalized || p.name === params.productName
+    );
 
-      let colorIdx = 0;
-      const groups: StoreGrouped[] = [];
-      map.forEach((prices, storeId) => {
-        const sortedDesc = [...prices].sort((a, b) => b.date.toMillis() - a.date.toMillis());
-        const sortedAsc = [...prices].sort((a, b) => a.date.toMillis() - b.date.toMillis());
-        const priceValues = prices.map((p) => p.price);
-        groups.push({
-          storeId,
-          storeName: prices[0].storeName,
-          prices: sortedDesc,
-          sortedPrices: sortedAsc,
-          currentPrice: sortedDesc[0].price,
-          lowestPrice: Math.min(...priceValues),
-          highestPrice: Math.max(...priceValues),
-          color: STORE_COLORS[colorIdx++ % STORE_COLORS.length],
-        });
-      });
+    if (!found) { setLoading(false); return; }
+    setProduct(found);
 
-      groups.sort((a, b) => a.currentPrice - b.currentPrice);
-      setStoreGroups(groups);
+    buildGroups(found);
+    setLoading(false);
+  }
 
-      // linha do tempo unificada
-      const events: TimelineEvent[] = found.prices.map((p) => {
-        const g = groups.find((g) => g.storeId === p.storeId);
-        return {
-          date: p.date.toDate(),
-          storeId: p.storeId,
-          storeName: p.storeName,
-          price: p.price,
-          color: g?.color ?? colors.primary,
-        };
-      });
-      events.sort((a, b) => b.date.getTime() - a.date.getTime());
-      setTimeline(events);
-      setLoading(false);
+  function buildGroups(found: Product) {
+
+    // agrupar por loja
+    const map = new Map<string, ProductPrice[]>();
+    for (const p of found.prices) {
+      const list = map.get(p.storeId) ?? [];
+      list.push(p);
+      map.set(p.storeId, list);
     }
-    load();
-  }, [params.productName]);
+
+    let colorIdx = 0;
+    const groups: StoreGrouped[] = [];
+    map.forEach((prices, storeId) => {
+      const sortedDesc = [...prices].sort((a, b) => b.date.toMillis() - a.date.toMillis());
+      const sortedAsc = [...prices].sort((a, b) => a.date.toMillis() - b.date.toMillis());
+      const priceValues = prices.map((p) => p.price);
+      groups.push({
+        storeId,
+        storeName: prices[0].storeName,
+        prices: sortedDesc,
+        sortedPrices: sortedAsc,
+        currentPrice: sortedDesc[0].price,
+        lowestPrice: Math.min(...priceValues),
+        highestPrice: Math.max(...priceValues),
+        color: STORE_COLORS[colorIdx++ % STORE_COLORS.length],
+      });
+    });
+
+    groups.sort((a, b) => a.currentPrice - b.currentPrice);
+    setStoreGroups(groups);
+
+    const events: TimelineEvent[] = found.prices.map((p) => {
+      const g = groups.find((g) => g.storeId === p.storeId);
+      return {
+        date: p.date.toDate(),
+        storeId: p.storeId,
+        storeName: p.storeName,
+        price: p.price,
+        color: g?.color ?? colors.primary,
+      };
+    });
+    events.sort((a, b) => b.date.getTime() - a.date.getTime());
+    setTimeline(events);
+  }
+
+  useEffect(() => { load(); }, [params.productName]);
+
+  async function handleRename() {
+    if (!product || !newName.trim()) return;
+    setSaving(true);
+    try {
+      await renameProduct(product.id, newName.trim());
+      setProduct({ ...product, name: newName.trim() });
+      setRenameModal(false);
+    } catch (e: any) {
+      Alert.alert('Erro', e.message);
+    }
+    setSaving(false);
+  }
+
+  async function handleMerge(target: Product) {
+    if (!product) return;
+    Alert.alert(
+      'Mesclar produtos',
+      `Unir "${product.name}" com "${target.name}"?\n\nTodo o histórico de preços será combinado e "${product.name}" será removido.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Mesclar',
+          style: 'destructive',
+          onPress: async () => {
+            setSaving(true);
+            try {
+              await mergeProducts(product.id, target.id);
+              setMergeModal(false);
+              navigation.goBack();
+            } catch (e: any) {
+              Alert.alert('Erro', e.message);
+              setSaving(false);
+            }
+          },
+        },
+      ]
+    );
+  }
 
   if (loading) {
     return <View style={styles.center}><ActivityIndicator color={colors.primary} size="large" /></View>;
@@ -318,7 +386,94 @@ export default function ProductCompareScreen() {
         })}
       </View>
 
+      {/* ── Botão mesclar ─────────────────────────────────────────────── */}
+      <TouchableOpacity style={styles.mergeBtn} onPress={() => { setMergeSearch(''); setMergeModal(true); }}>
+        <Ionicons name="git-merge-outline" size={16} color={colors.primary} />
+        <Text style={styles.mergeBtnText}>Mesclar com outro produto</Text>
+      </TouchableOpacity>
+
     </ScrollView>
+
+    {/* ── Modal renomear ─────────────────────────────────────────────────── */}
+    <Modal visible={renameModal} transparent animationType="slide">
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.modalOverlay}
+      >
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>Renomear produto</Text>
+          <TextInput
+            style={styles.modalInput}
+            value={newName}
+            onChangeText={setNewName}
+            autoFocus
+            returnKeyType="done"
+            onSubmitEditing={handleRename}
+            placeholder="Nome do produto"
+            placeholderTextColor={colors.textMuted}
+          />
+          <View style={styles.modalBtns}>
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setRenameModal(false)}>
+              <Text style={styles.cancelBtnText}>Cancelar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.saveBtn, (!newName.trim() || merging) && styles.saveBtnDisabled]}
+              onPress={handleRename}
+              disabled={!newName.trim() || merging}
+            >
+              <Text style={styles.saveBtnText}>{merging ? 'Salvando...' : 'Salvar'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+
+    {/* ── Modal mesclar ──────────────────────────────────────────────────── */}
+    <Modal visible={mergeModal} transparent animationType="slide">
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalCard, { maxHeight: '80%' }]}>
+          <Text style={styles.modalTitle}>Mesclar com...</Text>
+          <Text style={styles.modalHint}>
+            Escolha o produto que ficará com todo o histórico combinado.
+          </Text>
+          <TextInput
+            style={[styles.modalInput, { marginBottom: spacing.sm }]}
+            value={mergeSearch}
+            onChangeText={setMergeSearch}
+            placeholder="Buscar produto..."
+            placeholderTextColor={colors.textMuted}
+            autoFocus
+          />
+          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
+            {allProducts
+              .filter((p) => p.id !== product?.id &&
+                (mergeSearch.length < 2 ||
+                  p.normalizedName.includes(normalizeProductName(mergeSearch))))
+              .slice(0, 20)
+              .map((p) => (
+                <TouchableOpacity
+                  key={p.id}
+                  style={styles.mergeOption}
+                  onPress={() => handleMerge(p)}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.mergeOptionName} numberOfLines={1}>{p.name}</Text>
+                    <Text style={styles.mergeOptionSub}>
+                      {new Set(p.prices.map((pr) => pr.storeId)).size} {new Set(p.prices.map((pr) => pr.storeId)).size === 1 ? 'loja' : 'lojas'} · {p.prices.length} registros
+                    </Text>
+                  </View>
+                  {p.cheapestPrice != null && (
+                    <Text style={styles.mergeOptionPrice}>{formatBRL(p.cheapestPrice)}</Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+          </ScrollView>
+          <TouchableOpacity style={[styles.cancelBtn, { marginTop: spacing.sm }]} onPress={() => setMergeModal(false)}>
+            <Text style={styles.cancelBtnText}>Cancelar</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -463,4 +618,37 @@ const styles = StyleSheet.create({
   timelinePrice: { fontSize: 15, fontWeight: '800' },
   deltaRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
   deltaText: { fontSize: 10, fontWeight: '600' },
+
+  mergeBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: spacing.sm, marginTop: spacing.md, padding: spacing.md,
+    borderWidth: 1.5, borderColor: colors.primary, borderRadius: radius.md,
+  },
+  mergeBtnText: { fontSize: 14, color: colors.primary, fontWeight: '600' },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalCard: {
+    backgroundColor: colors.card,
+    borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg,
+    padding: spacing.xl, paddingBottom: 40,
+  },
+  modalTitle: { fontSize: 17, fontWeight: '700', color: colors.text, marginBottom: spacing.sm },
+  modalHint: { fontSize: 12, color: colors.textMuted, marginBottom: spacing.md },
+  modalInput: {
+    borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md,
+    padding: spacing.md, fontSize: 15, color: colors.text, marginBottom: spacing.md,
+  },
+  modalBtns: { flexDirection: 'row', gap: spacing.sm },
+  cancelBtn: { flex: 1, borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' },
+  cancelBtnText: { color: colors.textSecondary, fontWeight: '600' },
+  saveBtn: { flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' },
+  saveBtnDisabled: { backgroundColor: colors.textMuted },
+  saveBtnText: { color: '#fff', fontWeight: '700' },
+  mergeOption: {
+    flexDirection: 'row', alignItems: 'center', padding: spacing.md,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  mergeOptionName: { fontSize: 14, fontWeight: '600', color: colors.text },
+  mergeOptionSub: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
+  mergeOptionPrice: { fontSize: 14, fontWeight: '700', color: colors.secondary, marginLeft: spacing.sm },
 });

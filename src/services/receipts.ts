@@ -185,6 +185,40 @@ export async function getProduct(id: string): Promise<Product | null> {
   return snap.exists() ? (snap.data() as Product) : null;
 }
 
+export async function renameProduct(productId: string, newName: string): Promise<void> {
+  await setDoc(doc(db, 'products', productId), { name: newName }, { merge: true });
+}
+
+export async function mergeProducts(sourceId: string, targetId: string): Promise<void> {
+  const [sourceSnap, targetSnap] = await Promise.all([
+    getDoc(doc(db, 'products', sourceId)),
+    getDoc(doc(db, 'products', targetId)),
+  ]);
+  if (!sourceSnap.exists() || !targetSnap.exists()) throw new Error('Produto não encontrado');
+
+  const source = sourceSnap.data() as Product;
+  const target = targetSnap.data() as Product;
+
+  const mergedPrices = [...target.prices, ...source.prices].sort(
+    (a, b) => a.date.toMillis() - b.date.toMillis()
+  );
+  const cheapest = mergedPrices.reduce((min, p) => (p.price < min.price ? p : min));
+  const last = mergedPrices[mergedPrices.length - 1];
+
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'products', targetId), {
+    ...target,
+    prices: mergedPrices,
+    cheapestPrice: cheapest.price,
+    cheapestStore: cheapest.storeName,
+    cheapestStoreId: cheapest.storeId,
+    lastPrice: last.price,
+    lastStore: last.storeName,
+  });
+  batch.delete(doc(db, 'products', sourceId));
+  await batch.commit();
+}
+
 // ── Shopping Lists ────────────────────────────────────────────────────────────
 
 export async function getShoppingLists(): Promise<ShoppingList[]> {
