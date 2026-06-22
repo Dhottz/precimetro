@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput,
-  Modal, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, ScrollView,
+  Modal, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, ScrollView, Pressable,
 } from 'react-native';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,6 +12,8 @@ import { colors, spacing, radius, shadow } from '../theme';
 
 type Route = RouteProp<RootStackParamList, 'ShoppingListDetail'>;
 
+const UNITS = ['UN', 'KG', 'G', 'L', 'ML', 'PCT', 'CX', 'DZ', 'M', 'CM'];
+
 export default function ShoppingListDetailScreen() {
   const { params } = useRoute<Route>();
   const [list, setList] = useState<ShoppingList | null>(null);
@@ -20,7 +22,9 @@ export default function ShoppingListDetailScreen() {
   const [addModal, setAddModal] = useState(false);
   const [newItemName, setNewItemName] = useState('');
   const [newItemQty, setNewItemQty] = useState('1');
-  const [newItemUnit, setNewItemUnit] = useState('un');
+  const [newItemUnit, setNewItemUnit] = useState('UN');
+
+  const [unitDropdownOpen, setUnitDropdownOpen] = useState(false);
 
   // Autocomplete
   const [allProducts, setAllProducts] = useState<Product[]>([]);
@@ -60,10 +64,12 @@ export default function ShoppingListDetailScreen() {
 
   function handleSelectSuggestion(product: Product) {
     const lastPrice = product.prices[product.prices.length - 1];
+    const unit = (lastPrice?.unit || 'UN').toUpperCase();
     setNewItemName(product.name);
-    setNewItemUnit(lastPrice?.unit || 'un');
+    setNewItemUnit(UNITS.includes(unit) ? unit : 'UN');
     setNewItemQty('1');
     setSelectedFromHistory(true);
+    setUnitDropdownOpen(false);
     setSuggestions([]);
   }
 
@@ -71,7 +77,8 @@ export default function ShoppingListDetailScreen() {
     setAddModal(false);
     setNewItemName('');
     setNewItemQty('1');
-    setNewItemUnit('un');
+    setNewItemUnit('UN');
+    setUnitDropdownOpen(false);
     setSelectedFromHistory(false);
     setSuggestions([]);
   }
@@ -91,7 +98,7 @@ export default function ShoppingListDetailScreen() {
       id: Date.now().toString(),
       productName: newItemName.trim(),
       quantity: qty,
-      unit: newItemUnit.trim() || 'un',
+      unit: newItemUnit,
       checked: false,
     };
     const updated = { ...list, items: [...list.items, newItem] };
@@ -181,6 +188,7 @@ export default function ShoppingListDetailScreen() {
         renderItem={renderItem}
         contentContainerStyle={styles.listContent}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         ListHeaderComponent={
           <View>
             <View style={styles.summaryCard}>
@@ -241,9 +249,10 @@ export default function ShoppingListDetailScreen() {
       <Modal visible={addModal} transparent animationType="slide">
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.modalOverlay}
+          style={{ flex: 1 }}
         >
-          <View style={styles.modalCard}>
+          <Pressable style={styles.modalOverlay} onPress={resetModal}>
+          <Pressable style={styles.modalCard} onPress={() => {}}>
             <Text style={styles.modalTitle}>Adicionar item</Text>
             <Text style={styles.modalLabel}>Produto</Text>
 
@@ -292,14 +301,32 @@ export default function ShoppingListDetailScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.modalLabel}>Unidade</Text>
-                <TextInput
-                  style={styles.input}
-                  value={newItemUnit}
-                  onChangeText={setNewItemUnit}
-                  placeholder="un"
-                  placeholderTextColor={colors.textMuted}
-                  autoCapitalize="none"
-                />
+                <TouchableOpacity
+                  style={styles.unitBtn}
+                  onPress={() => setUnitDropdownOpen((v) => !v)}
+                >
+                  <Text style={styles.unitBtnText}>{newItemUnit}</Text>
+                  <Ionicons
+                    name={unitDropdownOpen ? 'chevron-up' : 'chevron-down'}
+                    size={14}
+                    color={colors.textMuted}
+                  />
+                </TouchableOpacity>
+                {unitDropdownOpen && (
+                  <View style={styles.unitDropdown}>
+                    {UNITS.map((u) => (
+                      <TouchableOpacity
+                        key={u}
+                        style={[styles.unitOption, u === newItemUnit && styles.unitOptionSelected]}
+                        onPress={() => { setNewItemUnit(u); setUnitDropdownOpen(false); }}
+                      >
+                        <Text style={[styles.unitOptionText, u === newItemUnit && styles.unitOptionTextSelected]}>
+                          {u}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
               </View>
             </View>
 
@@ -321,7 +348,8 @@ export default function ShoppingListDetailScreen() {
                 <Text style={styles.saveBtnText}>Adicionar</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </Pressable>
+          </Pressable>
         </KeyboardAvoidingView>
       </Modal>
     </View>
@@ -443,6 +471,24 @@ const styles = StyleSheet.create({
   suggestionName: { fontSize: 13, color: colors.text, flex: 1 },
   suggestionPrice: { fontSize: 13, fontWeight: '700', color: colors.secondary, marginLeft: 8 },
   qtyRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
+  unitBtn: {
+    borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md,
+    padding: spacing.md, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  unitBtnText: { fontSize: 15, color: colors.text, fontWeight: '600' },
+  unitDropdown: {
+    position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
+    borderRadius: radius.md, overflow: 'hidden', ...shadow.sm,
+  },
+  unitOption: {
+    paddingHorizontal: spacing.md, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  unitOptionSelected: { backgroundColor: colors.primaryLight },
+  unitOptionText: { fontSize: 14, color: colors.text },
+  unitOptionTextSelected: { color: colors.primary, fontWeight: '700' },
   estimateHint: { fontSize: 11, color: colors.textMuted, marginBottom: spacing.md, textAlign: 'center' },
   modalBtns: { flexDirection: 'row', gap: spacing.sm },
   cancelBtn: { flex: 1, borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' },

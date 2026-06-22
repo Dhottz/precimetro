@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  Modal, TextInput, KeyboardAvoidingView, Platform, RefreshControl,
+  Modal, TextInput, KeyboardAvoidingView, Platform, RefreshControl, Pressable,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -124,36 +124,41 @@ export default function ShoppingListScreen() {
       <Modal visible={newListModal} transparent animationType="slide">
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.modalOverlay}
+          style={{ flex: 1 }}
         >
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Nova lista de compras</Text>
-            <TextInput
-              style={styles.input}
-              value={newListName}
-              onChangeText={setNewListName}
-              placeholder="Ex: Compras do mês, Churrasco..."
-              placeholderTextColor={colors.textMuted}
-              autoFocus
-              returnKeyType="done"
-              onSubmitEditing={handleCreateList}
-            />
-            <View style={styles.modalBtns}>
-              <TouchableOpacity
-                style={styles.cancelBtn}
-                onPress={() => { setNewListModal(false); setNewListName(''); }}
-              >
-                <Text style={styles.cancelBtnText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.saveBtn, !newListName.trim() && styles.saveBtnDisabled]}
-                onPress={handleCreateList}
-                disabled={!newListName.trim() || saving}
-              >
-                <Text style={styles.saveBtnText}>Criar</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          <Pressable
+            style={styles.modalOverlay}
+            onPress={() => { setNewListModal(false); setNewListName(''); }}
+          >
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <Text style={styles.modalTitle}>Nova lista de compras</Text>
+              <TextInput
+                style={styles.input}
+                value={newListName}
+                onChangeText={setNewListName}
+                placeholder="Ex: Compras do mês, Churrasco..."
+                placeholderTextColor={colors.textMuted}
+                autoFocus
+                returnKeyType="done"
+                onSubmitEditing={handleCreateList}
+              />
+              <View style={styles.modalBtns}>
+                <TouchableOpacity
+                  style={styles.cancelBtn}
+                  onPress={() => { setNewListModal(false); setNewListName(''); }}
+                >
+                  <Text style={styles.cancelBtnText}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.saveBtn, !newListName.trim() && styles.saveBtnDisabled]}
+                  onPress={handleCreateList}
+                  disabled={!newListName.trim() || saving}
+                >
+                  <Text style={styles.saveBtnText}>Criar</Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
+          </Pressable>
         </KeyboardAvoidingView>
       </Modal>
     </View>

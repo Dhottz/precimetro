@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useLayoutEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, ActivityIndicator, Dimensions,
-  TouchableOpacity, Modal, TextInput, Alert, KeyboardAvoidingView, Platform,
+  TouchableOpacity, Modal, TextInput, Alert, KeyboardAvoidingView, Platform, Pressable,
 } from 'react-native';
 import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -147,28 +147,31 @@ export default function ProductCompareScreen() {
 
   async function handleMerge(target: Product) {
     if (!product) return;
-    Alert.alert(
-      'Mesclar produtos',
-      `Unir "${product.name}" com "${target.name}"?\n\nTodo o histórico de preços será combinado e "${product.name}" será removido.`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Mesclar',
-          style: 'destructive',
-          onPress: async () => {
-            setSaving(true);
-            try {
-              await mergeProducts(product.id, target.id);
-              setMergeModal(false);
-              navigation.goBack();
-            } catch (e: any) {
-              Alert.alert('Erro', e.message);
-              setSaving(false);
-            }
+    // fecha o modal antes de exibir o Alert para evitar conflito de overlays no Android
+    setMergeModal(false);
+    setTimeout(() => {
+      Alert.alert(
+        'Mesclar produtos',
+        `Unir "${product.name}" com "${target.name}"?\n\nTodo o histórico de preços será combinado e "${product.name}" será removido.`,
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Mesclar',
+            style: 'destructive',
+            onPress: async () => {
+              setSaving(true);
+              try {
+                await mergeProducts(product.id, target.id);
+                navigation.goBack();
+              } catch (e: any) {
+                Alert.alert('Erro', e.message);
+                setSaving(false);
+              }
+            },
           },
-        },
-      ]
-    );
+        ]
+      );
+    }, 300);
   }
 
   if (loading) {
@@ -191,7 +194,7 @@ export default function ProductCompareScreen() {
 
   return (
     <>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardDismissMode="on-drag">
 
       {/* ── Card de resumo ─────────────────────────────────────────────── */}
       <View style={styles.summaryCard}>
@@ -397,83 +400,85 @@ export default function ProductCompareScreen() {
 
       {/* ── Modal renomear ─────────────────────────────────────────────────── */}
       <Modal visible={renameModal} transparent animationType="slide">
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.modalOverlay}
-      >
-        <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>Renomear produto</Text>
-          <TextInput
-            style={styles.modalInput}
-            value={newName}
-            onChangeText={setNewName}
-            autoFocus
-            returnKeyType="done"
-            onSubmitEditing={handleRename}
-            placeholder="Nome do produto"
-            placeholderTextColor={colors.textMuted}
-          />
-          <View style={styles.modalBtns}>
-            <TouchableOpacity style={styles.cancelBtn} onPress={() => setRenameModal(false)}>
-              <Text style={styles.cancelBtnText}>Cancelar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.saveBtn, (!newName.trim() || merging) && styles.saveBtnDisabled]}
-              onPress={handleRename}
-              disabled={!newName.trim() || merging}
-            >
-              <Text style={styles.saveBtnText}>{merging ? 'Salvando...' : 'Salvar'}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
+          <Pressable style={styles.modalOverlay} onPress={() => setRenameModal(false)}>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <Text style={styles.modalTitle}>Renomear produto</Text>
+              <TextInput
+                style={styles.modalInput}
+                value={newName}
+                onChangeText={setNewName}
+                autoFocus
+                returnKeyType="done"
+                onSubmitEditing={handleRename}
+                placeholder="Nome do produto"
+                placeholderTextColor={colors.textMuted}
+              />
+              <View style={styles.modalBtns}>
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => setRenameModal(false)}>
+                  <Text style={styles.cancelBtnText}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.saveBtn, (!newName.trim() || merging) && styles.saveBtnDisabled]}
+                  onPress={handleRename}
+                  disabled={!newName.trim() || merging}
+                >
+                  <Text style={styles.saveBtnText}>{merging ? 'Salvando...' : 'Salvar'}</Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ── Modal mesclar ──────────────────────────────────────────────────── */}
       <Modal visible={mergeModal} transparent animationType="slide">
-      <View style={styles.modalOverlay}>
-        <View style={[styles.modalCard, { maxHeight: '80%' }]}>
-          <Text style={styles.modalTitle}>Mesclar com...</Text>
-          <Text style={styles.modalHint}>
-            Escolha o produto que ficará com todo o histórico combinado.
-          </Text>
-          <TextInput
-            style={[styles.modalInput, { marginBottom: spacing.sm }]}
-            value={mergeSearch}
-            onChangeText={setMergeSearch}
-            placeholder="Buscar produto..."
-            placeholderTextColor={colors.textMuted}
-            autoFocus
-          />
-          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
-            {allProducts
-              .filter((p) => p.id !== product?.id &&
-                (mergeSearch.length < 2 ||
-                  p.normalizedName.includes(normalizeProductName(mergeSearch))))
-              .slice(0, 20)
-              .map((p) => (
-                <TouchableOpacity
-                  key={p.id}
-                  style={styles.mergeOption}
-                  onPress={() => handleMerge(p)}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.mergeOptionName} numberOfLines={1}>{p.name}</Text>
-                    <Text style={styles.mergeOptionSub}>
-                      {new Set(p.prices.map((pr) => pr.storeId)).size} {new Set(p.prices.map((pr) => pr.storeId)).size === 1 ? 'loja' : 'lojas'} · {p.prices.length} registros
-                    </Text>
-                  </View>
-                  {p.cheapestPrice != null && (
-                    <Text style={styles.mergeOptionPrice}>{formatBRL(p.cheapestPrice)}</Text>
-                  )}
-                </TouchableOpacity>
-              ))}
-          </ScrollView>
-          <TouchableOpacity style={[styles.cancelBtn, { marginTop: spacing.sm }]} onPress={() => setMergeModal(false)}>
-            <Text style={styles.cancelBtnText}>Cancelar</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+        <Pressable style={styles.modalOverlay} onPress={() => setMergeModal(false)}>
+          <Pressable style={[styles.modalCard, { maxHeight: '80%' }]} onPress={() => {}}>
+            <Text style={styles.modalTitle}>Mesclar com...</Text>
+            <Text style={styles.modalHint}>
+              Escolha o produto que ficará com todo o histórico combinado.
+            </Text>
+            <TextInput
+              style={[styles.modalInput, { marginBottom: spacing.sm }]}
+              value={mergeSearch}
+              onChangeText={setMergeSearch}
+              placeholder="Buscar produto..."
+              placeholderTextColor={colors.textMuted}
+              autoFocus
+            />
+            <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
+              {allProducts
+                .filter((p) => p.id !== product?.id &&
+                  (mergeSearch.length < 2 ||
+                    p.normalizedName.includes(normalizeProductName(mergeSearch))))
+                .slice(0, 20)
+                .map((p) => (
+                  <TouchableOpacity
+                    key={p.id}
+                    style={styles.mergeOption}
+                    onPress={() => handleMerge(p)}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.mergeOptionName} numberOfLines={1}>{p.name}</Text>
+                      <Text style={styles.mergeOptionSub}>
+                        {new Set(p.prices.map((pr) => pr.storeId)).size} {new Set(p.prices.map((pr) => pr.storeId)).size === 1 ? 'loja' : 'lojas'} · {p.prices.length} registros
+                      </Text>
+                    </View>
+                    {p.cheapestPrice != null && (
+                      <Text style={styles.mergeOptionPrice}>{formatBRL(p.cheapestPrice)}</Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+            </ScrollView>
+            <TouchableOpacity style={[styles.cancelBtn, { marginTop: spacing.sm }]} onPress={() => setMergeModal(false)}>
+              <Text style={styles.cancelBtnText}>Cancelar</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
       </Modal>
     </>
   );
